@@ -86,10 +86,12 @@ fn cli_seconds(s: &str) -> Result<f64, String> {
     }
 }
 
-/// Seconds from a request, checked before anything happens.
+/// Seconds from a request, checked before anything happens. Capped at a
+/// century: a deadline much further out overflows `Instant`.
 pub(super) fn seconds(s: Option<f64>) -> Result<Option<Duration>, RpcError> {
     s.map(|s| {
         Duration::try_from_secs_f64(s)
+            .map(|d| d.min(Duration::from_secs(100 * 365 * 86_400)))
             .map_err(|_| RpcError::invalid_params(format!("timeout must be 0 or more seconds, not {s}")))
     })
     .transpose()
@@ -820,4 +822,13 @@ pub struct RunResult {
 #[derive(Serialize, JsonSchema)]
 pub struct TemplatesResult {
     pub templates: Vec<crate::templates::TemplateInfo>,
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_timeout_too_long_to_end_in_time_still_gives_a_deadline() {
+        let forever = super::seconds(Some(1e19)).unwrap().unwrap();
+        assert!(tokio::time::Instant::now().checked_add(forever).is_some());
+    }
 }
